@@ -40,6 +40,40 @@ export function buildStoryboard(script, tone = 'cinematic') {
   return scenes;
 }
 
+async function generateSceneImage(projectId, scene, index) {
+  const sceneDirHost = path.join(storageRoot, projectId, 'scenes');
+  await fs.mkdir(sceneDirHost, { recursive: true });
+
+  // Worker writes into /tmp inside its container which is mapped to ./storage on the host
+  const workerOutputPath = `/tmp/${projectId}/scenes/scene-${index}.png`;
+  const localImagePath = path.join(sceneDirHost, `scene-${index}.png`);
+
+  const workerBase = process.env.SD_WORKER_URL || 'http://worker:8000';
+
+  try {
+    const res = await fetch(`${workerBase}/generate-scene`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt: scene.prompt || scene.text, width: 1280, height: 720, output_path: workerOutputPath })
+    });
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Worker error');
+
+    // Worker saved the image to /tmp/... which is mounted to ./storage on the host, so the image should exist at localImagePath
+    await fs.access(localImagePath);
+    return localImagePath;
+  } catch (err) {
+    console.warn('Worker image generation failed, falling back to placeholder:', err.message);
+    // Fallback: create a simple image via ffmpeg drawtext over a color
+    const fallbackPath = localImagePath;
+    const safeText = (scene.text || '').replace(/'/g, "\\'");
+    const cmd = `ffmpeg -hide_banner -loglevel error -y -f lavfi -i color=c=0x243b66:s=1280x720 -vf "drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:text='${safeText}':fontcolor=white:fontsize=40:x=(w-text_w)/2:y=(h-text_h)/2" -frames:v 1 ${fallbackPath}`;
+    await execFileAsync('bash', ['-lc', cmd]);
+    return fallbackPath;
+  }
+}
+
 export async function renderProjectVideo({ projectId, title, script, tone, scenes }) {
   const projectDir = path.join(storageRoot, projectId);
   await fs.mkdir(projectDir, { recursive: true });
@@ -49,40 +83,56 @@ export async function renderProjectVideo({ projectId, title, script, tone, scene
 
   const clipFiles = [];
 
+  // Generate or fetch scene images
+  const imageFiles = [];
   for (const [index, scene] of scenes.entries()) {
-    const clipPath = path.join(sceneDir, `clip-${index}.mp4`);
-    const safeTitle = scene.text.replace(/'/g, "\\'");
-    const color = ['#1f6feb', '#00b894', '#f39c12', '#8e44ad', '#e74c3c', '#16a085'][index % 6];
+    const imagePath = await generateSceneImage(projectId, scene, index);
+    imageFiles.push(imagePath);
+    // attach image path to scene metadata (served later via assets route)
+    scene.image = `/api/projects/${projectId}/assets/scenes/scene-${index}.png`;
+    scene.thumbnail = scene.image; // same for now
+  }
 
-    await execFileAsync('ffmpeg', [
+  // Build short clips from images
+  for (const [index, scene] of scenes.entries()) {
+    const img = imageFiles[index];
+    const clipPath = path.join(sceneDir, `clip-${index}.mp4`);
+    const duration = Number(scene.duration || 4);
+
+    // Create a video from the static image (loop) and scale to 1280x720
+    const args = [
       '-hide_banner',
       '-loglevel', 'error',
       '-y',
-      '-f', 'lavfi',
-      '-i', `color=c=${color}:s=1280x720:d=${scene.duration}`,
-      '-vf', `drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:text='${safeTitle}':fontcolor=white:fontsize=38:x=(w-text_w)/2:y=(h-text_h)/2+120:shadowcolor=black@0.5:shadowx=2:shadowy=2`,
+      '-loop', '1',
+      '-i', img,
+      '-c:v', 'libx264',
+      '-t', String(duration),
+      '-vf', 'scale=1280:720',
       '-pix_fmt', 'yuv420p',
       clipPath
-    ]);
+    ];
 
+    await execFileAsync('ffmpeg', args);
     clipFiles.push(clipPath);
   }
 
+  // Create concat file
   const concatFile = path.join(projectDir, 'concat.txt');
   const concatContent = clipFiles.map((file) => `file '${file}'`).join('\n');
   await fs.writeFile(concatFile, concatContent, 'utf8');
 
+  // Generate speech audio
   const voiceText = scenes.map((scene) => scene.text).join(' ');
   const speechFile = path.join(projectDir, 'speech.wav');
-
   try {
     await execFileAsync('espeak-ng', ['-w', speechFile, '-s', '150', '-p', '50', voiceText]);
   } catch {
     await fs.writeFile(speechFile, '');
   }
 
+  // Build final video with optional audio
   const outputVideo = path.join(projectDir, 'final.mp4');
-
   const cmdArgs = [
     '-hide_banner',
     '-loglevel', 'error',
