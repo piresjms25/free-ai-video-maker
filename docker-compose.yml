@@ -6,6 +6,21 @@ services:
     ports:
       - "6379:6379"
 
+  worker:
+    build:
+      context: ./worker
+    env_file:
+      - .env
+    environment:
+      HF_IMAGE_MODEL: runwayml/stable-diffusion-v1-5
+      HF_API_TOKEN: ${HF_API_TOKEN}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./storage:/tmp
+    depends_on:
+      - redis
+
   backend:
     build:
       context: ./backend
@@ -13,6 +28,7 @@ services:
       PORT: 4000
       NODE_ENV: development
       REDIS_URL: redis://redis:6379
+      SD_WORKER_URL: http://worker:8000
     ports:
       - "4000:4000"
     volumes:
@@ -20,6 +36,7 @@ services:
       - ./storage:/app/storage
     depends_on:
       - redis
+      - worker
     command: npm run dev
 
   frontend:
