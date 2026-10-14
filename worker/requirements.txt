@@ -1,0 +1,12 @@
+fastapi==0.115.0
+uvicorn==0.30.6
+pillow==10.4.0
+python-multipart==0.0.9
+
+# An optional self-hosted SD stack for future GPU use.
+# If the environment has GPU drivers and the model is available, diffusers can generate better results.
+diffusers==0.30.2
+transformers==4.44.2
+accelerate==0.34.2
+safetensors==0.4.5
+torch==2.4.1
