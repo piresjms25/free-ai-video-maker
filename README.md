@@ -1,23 +1,28 @@
 # Free AI Video Studio
 
-A self-hosted AI video creation app inspired by InVideo, built with Node.js, React, FFmpeg, and Docker. This starter gives you a full-stack foundation for generating short video clips from scripts, planning scenes, and exporting MP4s locally.
+A self-hosted / hosted-hybrid AI video creation app inspired by InVideo, built with Node.js, React, FFmpeg, and Docker. This starter gives you a full-stack foundation for generating short video clips from scripts, planning scenes, and exporting MP4s locally.
 
 ## Features
 - Script-based project creation
 - AI-like scene planning and storyboard generation
-- Real video rendering with FFmpeg
-- Text-to-speech voice generation via espeak-ng
+- Free-tier hosted AI image generation via Hugging Face Inference API
+- Local FFmpeg video rendering
 - React editor UI for project creation and preview
-- Fully self-hosted Docker setup
+- Containerized developer setup with Docker Compose
 
 ## Tech stack
 - Frontend: React + Vite
 - Backend: Express + Node.js
-- Queue / orchestration: Redis-ready structure
-- Rendering: FFmpeg + espeak-ng
-- Containerization: Docker Compose
+- Worker: Python HTTP worker for hosted AI generation
+- Rendering: FFmpeg
+- Optional queue: Redis
 
-## Quick start
+## Requirements
+- Docker + Docker Compose
+- A Hugging Face token (free tier)
+- Node 20+
+
+## Setup
 
 ### 1) Clone the repo
 
@@ -26,7 +31,14 @@ git clone https://github.com/piresjms25/free-ai-video-maker.git
 cd free-ai-video-maker
 ```
 
-### 2) Start the app
+### 2) Create a local environment file
+Create a `.env` file in the project root:
+
+```bash
+HF_API_TOKEN=hf_your_token_here
+```
+
+### 3) Start the app
 
 ```bash
 docker compose up --build
@@ -35,13 +47,14 @@ docker compose up --build
 Then open:
 - Frontend: http://localhost:5173
 - Backend API: http://localhost:4000
+- Worker API: http://localhost:8000
 
-### 3) Create a project
+### 4) Create a project
 - Enter a video title and script.
 - Choose a tone.
-- Click Generate Video.
+- Click Generate video.
 
-### 4) Output location
+### 5) Output location
 Generated videos are stored under `storage/<project-id>/final.mp4`.
 
 ## Project structure
@@ -65,14 +78,20 @@ Generated videos are stored under `storage/<project-id>/final.mp4`.
 │       ├── App.jsx
 │       ├── main.jsx
 │       └── styles.css
+├── worker/
+│   ├── app.py
+│   ├── Dockerfile
+│   └── requirements.txt
 ├── docker-compose.yml
+├── .env.example
 ├── README.md
 └── .gitignore
 ```
 
 ## Notes
-- This is an MVP starter, intended for local self-hosting and learning.
-- Production expansions can include real AI image generation, stock media integrations, project timeline editing, cloud storage, and background worker jobs.
+- This version uses free-tier hosted inference for generated visuals.
+- If the hosted API is unavailable, the worker falls back to placeholder images so the export still works.
+- For production-grade video generation, add a queue, better timing controls, and richer prompt templates.
 
 ## License
 MIT
